@@ -8,7 +8,7 @@ Key Architectural Features:
 
 On a dual RTX 4090 machine, you can de-watermark over 1000 images per minute. ⚡😎⚡
 
-<img width="1078" height="473" alt="image" src="https://github.com/user-attachments/assets/b4ce1a0f-af8e-4814-baef-64cc08fc4173" />
+<img width="1077" height="447" alt="image" src="https://github.com/user-attachments/assets/b8105659-16b2-4f04-b367-a6979c4a5a46" />
 
 Enjoy!
 
