@@ -41,6 +41,7 @@ import multiprocessing as mp
 import subprocess
 import queue # For queue.Empty exception
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 # ────────────────────────────────── Third-Party Library Imports ─────────────────────────────────
 try:
     from rich.console import Console, Group
@@ -72,6 +73,7 @@ def parse_cli_args():
     parser.add_argument("-R", "--recursive", action="store_true", help="Process images in subdirectories recursively.")
     parser.add_argument("--cpu-workers", type=int, default=os.cpu_count(), help="Total number of CPU processes for writing images to disk.")
     parser.add_argument("--debug", action="store_true", help="Save intermediate mask_raw and mask_preview images for debugging.")
+    parser.add_argument("--max-size", type=int, default=0, help="Max side size for a image")
     return parser.parse_args()
 # ╰─────────────────────────────────────────────────────────────────────────╯
 
@@ -138,33 +140,58 @@ def gpu_worker_process(gpu_id: int, image_paths: list, write_queue: mp.Queue, st
     from PIL import Image
     try:
         device = torch.device("cuda:0"); yolo_model = YOLO(args.weights).to(device); lama_model = SimpleLama(device=device)
+        torch.set_grad_enabled(False)
+        yolo_model.model.eval()
+        lama_model.model.eval()
     except Exception as e:
         status_queue.put({"type": "error", "message": f"GPU {gpu_id} failed to init: {e}"}); return
 
     for path in image_paths:
         try:
             img_bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+
             if img_bgr is None:
+                print(f"[GPU {gpu_id}] Failed to read image: {path}")
+                continue
+
+            h, w = img_bgr.shape[:2]
+            max_side = max(h, w)
+
+            if args.max_size > 0 && max_side > args.max_size:
+                scale = args.max_size / max_side
+                new_w, new_h = int(w * scale), int(h * scale)
+                img_proc = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                del img_bgr
+            else:
+                img_proc = img_bgr
+
+            if img_proc is None:
                 status_queue.put({"type": "log", "message": f"Could not read image: {path}"}); continue
-            predictions = yolo_model(img_bgr, conf=args.conf, verbose=False)[0]
+            with torch.no_grad():
+                predictions = yolo_model(img_proc, conf=args.conf, verbose=False)[0]
             if len(predictions.boxes.xyxy) > 0:
-                mask = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
+                mask = np.zeros(img_proc.shape[:2], dtype=np.uint8)
+
                 for box in predictions.boxes.xyxy.cpu().numpy():
                     x1, y1, x2, y2 = map(int, box); cv2.rectangle(mask, (x1, y1), (x2, y2), 255, thickness=-1)
                 if args.dilate > 0:
                     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (args.dilate, args.dilate)); mask = cv2.dilate(mask, kernel, iterations=1)
                 if args.debug:
-                    preview_overlay = np.zeros_like(img_bgr); preview_overlay[mask == 255] = [0, 0, 255]
-                    mask_preview = cv2.addWeighted(img_bgr, 0.7, preview_overlay, 0.3, 0)
+                    preview_overlay = np.zeros_like(img_proc); preview_overlay[mask == 255] = [0, 0, 255]
+                    mask_preview = cv2.addWeighted(img_proc, 0.7, preview_overlay, 0.3, 0)
                     relative_path = path.relative_to(args.input)
                     debug_dir = args.output / "debug" / relative_path.parent
                     write_queue.put((debug_dir / f"{path.stem}_mask_raw.png", mask))
                     write_queue.put((debug_dir / f"{path.stem}_mask_preview.png", mask_preview))
-                result_bgr = cv2.cvtColor(np.array(lama_model(Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)), Image.fromarray(mask))), cv2.COLOR_RGB2BGR)
+
+                with torch.no_grad():
+                    result_rgb = lama_model(Image.fromarray(cv2.cvtColor(img_proc, cv2.COLOR_BGR2RGB)), Image.fromarray(mask))
+                result_bgr = cv2.cvtColor(np.array(result_rgb), cv2.COLOR_RGB2BGR)
             else:
-                result_bgr = img_bgr
+                result_bgr = img_proc
             write_queue.put((args.output / path.relative_to(args.input), result_bgr))
             status_queue.put({"type": "gpu_progress", "gpu_id": gpu_id})
+            torch.cuda.empty_cache()
         except Exception as e:
             status_queue.put({"type": "error", "message": f"Error on GPU {gpu_id} processing {path.name}: {e}"})
 
