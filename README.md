@@ -80,6 +80,9 @@ Here is a detailed explanation of all available arguments:
     1.  `_mask_raw.png`: The raw black and white mask.
     2.  `_mask_preview.png`: The mask overlaid in semi-transparent red on the original image.
 
+* **`--max-size`** `<integer>`
+    The maximum side size of an image in pixels. If you need to decrease an image. Set to `0` to disable.
+    (Default: `0`)
 
 ## Notes
 
