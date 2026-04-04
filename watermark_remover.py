@@ -180,7 +180,11 @@ def cpu_writer_process(write_queue: mp.Queue, log_queue: mp.Queue, output_dir: p
             if path.parent not in created_dirs:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 created_dirs.add(path.parent)
-            cv2.imwrite(str(path), image_array)
+            success, buffer = cv2.imencode(path.suffix, image_array)
+            if success:
+                buffer.tofile(str(path))
+            else:
+                print(f"[!] Failed to save image {path.name}")
             if not str(path).startswith(str(output_dir / "debug")):
                  log_queue.put(path.relative_to(output_dir).as_posix())
         except (KeyboardInterrupt, SystemExit):
