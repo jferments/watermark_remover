@@ -12,6 +12,10 @@ On a dual RTX 4090 machine, you can de-watermark over 1000 images per minute. âš
 
 Enjoy!
 
+## Development and architecture documentation
+
+The modernization design, model-backend survey, processing invariants, benchmark policy, agent instructions, and staged implementation checklist are indexed in [`docs/README.md`](docs/README.md).
+
 # Install instructions
 1. Clone the repository:
     ```bash
